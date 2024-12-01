@@ -1,0 +1,17 @@
+# Node.js dependencies
+frontend/node_modules/
+
+# Python virtual environment
+backend/venv/
+
+# Byte-compiled Python files
+*.pyc
+__pycache__/
+
+# Logs and temporary files
+*.log
+*.tmp
+.DS_Store
+
+# Environment files
+*.env
