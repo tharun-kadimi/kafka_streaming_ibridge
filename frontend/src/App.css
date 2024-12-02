@@ -1,0 +1,18 @@
+.App {
+  text-align: center;
+  font-family: Arial, sans-serif;
+}
+
+h1 {
+  color: #333;
+}
+
+pre {
+  background-color: #f4f4f4;
+  padding: 20px;
+  border-radius: 8px;
+  font-size: 16px;
+  text-align: left;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
