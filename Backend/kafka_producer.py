@@ -8,7 +8,7 @@ from confluent_kafka import Producer
 import time
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Database and Kafka configurations
 DB_HOST = os.getenv('DB_HOST', 'ibridge.ckyleyx0qknc.ap-south-1.rds.amazonaws.com')
@@ -16,7 +16,7 @@ DB_PORT = int(os.getenv('DB_PORT', 3306))
 DB_DATABASE = os.getenv('DB_DATABASE', 'capability_dev')
 DB_USERNAME = os.getenv('DB_USERNAME', 'dev_capability')
 DB_PASSWORD = quote_plus(os.getenv('DB_PASSWORD', 'Icapabilitydev@2021'))
-
+DB_TABLE = os.getenv('DB_TABLE', 'tbl_access_logs')
 KAFKA_BROKER = os.getenv('KAFKA_BROKER', 'localhost:9092')
 TOPIC_NAME = os.getenv('TOPIC_NAME', 'iB360_access_records')
 
@@ -28,9 +28,9 @@ def get_db_connection():
 # Kafka delivery report
 def delivery_report(err, msg):
     if err:
-        logging.error(f"Delivery failed for record {msg.key()}: {err}")
+        print(f"Delivery failed for record {msg.key()}: {err}")
     else:
-        logging.info(f"Record delivered to {msg.topic()} [{msg.partition()}] at offset {msg.offset()}")
+        print(f"Record delivered to {msg.topic()} [{msg.partition()}] at offset {msg.offset()}")
 
 # Produce messages to Kafka
 def produce_messages(producer, topic, data):
@@ -39,20 +39,21 @@ def produce_messages(producer, topic, data):
         try:
             producer.produce(
                 topic,
-                key=str(row.get('id', '')),
+                key=str(row.get('id', '')),  # Use 'id' as the key if available
                 value=json.dumps(message),
                 callback=delivery_report
             )
-            logging.info(f"Sent: {message}")
+            print(f"Sent: {message}")
         except Exception as e:
-            logging.error(f"Error producing message: {e}")
-        producer.flush()
+            print(f"Error producing message: {e}")
+    producer.flush()
 
-# Main function with while loop
+# Main function to keep producer running
 def main():
+    last_processed_id = 0  # Initialize to process all records initially
     try:
         db_connection = get_db_connection()
-        logging.info("Database connection established.")
+        print("Database connection established.")
 
         producer_config = {
             'bootstrap.servers': KAFKA_BROKER,
@@ -60,29 +61,37 @@ def main():
         }
         producer = Producer(producer_config)
 
-        logging.info("Starting Kafka producer.")
+        print("Starting Kafka producer.")
         while True:
-            # Fetch new data
-            query = "SELECT * FROM tbl_access_logs WHERE updated_at > NOW() - INTERVAL 1 MINUTE"
+            # Fetch data
+            if last_processed_id == 0:
+                query = f"SELECT * FROM {DB_TABLE} ORDER BY id ASC"  # Fetch all records for the first run
+            else:
+                query = f"SELECT * FROM {DB_TABLE} WHERE id > {last_processed_id} ORDER BY id ASC"
+
             access_df = pd.read_sql(query, db_connection)
 
-            # Process data if available
             if not access_df.empty:
-                access_df = access_df.applymap(lambda x: x.isoformat() if isinstance(x, pd.Timestamp) else x)
+                # Update last processed ID
+                last_processed_id = access_df['id'].max()
+
+                # Convert timestamps to ISO format
+                for column in access_df.select_dtypes(include=['datetime', 'datetimetz']).columns:
+                    access_df[column] = access_df[column].apply(lambda x: x.isoformat() if pd.notnull(x) else None)
+
+                # Produce messages to Kafka
                 produce_messages(producer, TOPIC_NAME, access_df)
             else:
-                logging.info("No new data to send.")
+                print("No new records found.")
+                break
 
-            # Wait before checking again
-            # time.sleep(1)  # Check for new data every 10 seconds
+            # Wait before checking for new data again
+              # Adjust the interval as needed
 
     except KeyboardInterrupt:
-        logging.info("Producer interrupted by user.")
+        print("Producer interrupted by user.")
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        print(f"An error occurred: {e}", exc_info=True)
     finally:
         producer.flush()
-        logging.info("Kafka producer stopped.")
-
-if __name__ == "__main__":
-    main()
+main()        
